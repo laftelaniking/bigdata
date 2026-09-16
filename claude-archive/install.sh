@@ -49,11 +49,32 @@ if [ "$KIT" != "$ARCHIVE_DIR" ]; then
     mkdir -p "$ARCHIVE_DIR/bin"
     cp "$KIT/bin/archive-session.sh" "$KIT/bin/jsonl-to-md.sh" "$ARCHIVE_DIR/bin/"
     cp "$KIT/install.sh" "$ARCHIVE_DIR/install.sh"
+    rm -rf "$ARCHIVE_DIR/template"
+    cp -r "$KIT/template" "$ARCHIVE_DIR/template"
     if [ -f "$KIT/README.md" ]; then cp "$KIT/README.md" "$ARCHIVE_DIR/README.md"; fi
     chmod +x "$ARCHIVE_DIR/bin/"*.sh "$ARCHIVE_DIR/install.sh"
 fi
 
 mkdir -p "$ARCHIVE_DIR/chats" "$ARCHIVE_DIR/raw"
+
+# 프로젝트 폴더 뼈대를 깐다.
+# 이미 있는 파일은 절대 덮어쓰지 않는다 — 채워 넣은 내용이 재설치로 날아가면 안 된다.
+if [ -d "$KIT/template" ]; then
+    seeded=0
+    while IFS= read -r rel; do
+        dest="$ARCHIVE_DIR/$rel"
+        if [ ! -e "$dest" ]; then
+            mkdir -p "$(dirname "$dest")"
+            cp "$KIT/template/$rel" "$dest"
+            seeded=$((seeded+1))
+        fi
+    done < <(cd "$KIT/template" && find . -type f | sed 's|^\./||')
+    if [ "$seeded" -gt 0 ]; then
+        ok "프로젝트 폴더를 만들었습니다 (새 파일 ${seeded}개)"
+    else
+        ok "프로젝트 폴더가 이미 있습니다 — 건드리지 않았습니다."
+    fi
+fi
 cat > "$ARCHIVE_DIR/.gitignore" <<'EOF'
 .archive.log
 .archive.lock
