@@ -93,10 +93,24 @@ cd "$ARCHIVE_DIR" || die "cd 실패"
 # 신원이 설정되지 않은 PC 에서 리베이스가 조용히 실패하고 푸시가 영영 막힌다.
 ID=(-c user.name="claude-archive" -c user.email="claude-archive@localhost")
 
-git add -A chats raw >/dev/null 2>&1
+# 저장소 전체를 커밋한다. chats/raw 만 담으면, 대화 중 profile/ 이나
+# decisions/ 에 기록한 내용 — 가장 값진 데이터 — 이 영영 공유되지 않는다.
+git add -A >/dev/null 2>&1
 git diff --cached --quiet && die "변경 없음"
-git "${ID[@]}" commit -q -m "archive: ${slug} (${host}, ${stamp})" >/dev/null 2>&1 \
-    || die "커밋 실패"
+
+# 대화 기록 외에 무엇이 함께 바뀌었는지 커밋 메시지에 남긴다
+# core.quotePath=false 가 없으면 git 이 한글 경로를 따옴표로 감싸 내보내서
+# 최상위 폴더 이름이 어긋나고 chats/raw 제외가 빗나간다.
+changed="$(git -c core.quotePath=false diff --cached --name-only \
+           | sed -E 's|/.*||' | sort -u \
+           | grep -vE '^(chats|raw)$' | paste -sd, - 2>/dev/null || true)"
+if [ -n "$changed" ]; then
+    msg="archive: ${slug} (${host}, ${stamp}) [+${changed}]"
+else
+    msg="archive: ${slug} (${host}, ${stamp})"
+fi
+
+git "${ID[@]}" commit -q -m "$msg" >/dev/null 2>&1 || die "커밋 실패"
 
 branch="$(git symbolic-ref --short -q HEAD 2>/dev/null || echo main)"
 delay=2

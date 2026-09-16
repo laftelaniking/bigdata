@@ -47,7 +47,8 @@ fi
 # 2) 스크립트를 아카이브 저장소 안으로 복사 (저장소가 곧 배포 수단이 된다)
 if [ "$KIT" != "$ARCHIVE_DIR" ]; then
     mkdir -p "$ARCHIVE_DIR/bin"
-    cp "$KIT/bin/archive-session.sh" "$KIT/bin/jsonl-to-md.sh" "$ARCHIVE_DIR/bin/"
+    cp "$KIT/bin/archive-session.sh" "$KIT/bin/jsonl-to-md.sh" \
+       "$KIT/bin/sync-pull.sh" "$ARCHIVE_DIR/bin/"
     cp "$KIT/install.sh" "$ARCHIVE_DIR/install.sh"
     rm -rf "$ARCHIVE_DIR/template"
     cp -r "$KIT/template" "$ARCHIVE_DIR/template"
@@ -98,27 +99,35 @@ mkdir -p "$(dirname "$SETTINGS")"
 jq empty "$SETTINGS" 2>/dev/null || fail "$SETTINGS 의 JSON 이 깨져 있습니다. 먼저 고쳐주세요."
 
 if [ "$ARCHIVE_DIR" = "$HOME/claude-archive" ]; then
-    cmd="\"\$HOME/claude-archive/bin/archive-session.sh\""
+    base="\$HOME/claude-archive/bin"
 else
-    cmd="\"$ARCHIVE_DIR/bin/archive-session.sh\""
+    base="$ARCHIVE_DIR/bin"
 fi
 
-if jq -e --arg c "archive-session.sh" '
-      [ (.hooks.SessionEnd // [])[] | (.hooks // [])[] | (.command // "") ]
-      | any(contains($c))
-    ' "$SETTINGS" >/dev/null 2>&1; then
-    ok "훅이 이미 등록되어 있습니다."
-else
-    tmp="$(mktemp)"
-    jq --arg cmd "$cmd" '
+# $1=훅 이벤트  $2=스크립트 파일명  $3=사람이 읽을 설명
+register_hook() {
+    local event="$1" script="$2" label="$3"
+    if jq -e --arg e "$event" --arg c "$script" '
+          [ (.hooks[$e] // [])[] | (.hooks // [])[] | (.command // "") ]
+          | any(contains($c))
+        ' "$SETTINGS" >/dev/null 2>&1; then
+        ok "$label 훅이 이미 등록되어 있습니다."
+        return
+    fi
+    local tmp; tmp="$(mktemp)"
+    jq --arg e "$event" --arg cmd "\"$base/$script\"" '
         .hooks //= {} |
-        .hooks.SessionEnd //= [] |
-        .hooks.SessionEnd += [{
+        .hooks[$e] //= [] |
+        .hooks[$e] += [{
             hooks: [{ type: "command", command: $cmd, async: true, timeout: 120 }]
         }]
     ' "$SETTINGS" > "$tmp" && mv "$tmp" "$SETTINGS"
-    ok "훅을 등록했습니다: $SETTINGS"
-fi
+    ok "$label 훅을 등록했습니다."
+}
+
+register_hook SessionStart sync-pull.sh       "받아오기(SessionStart)"
+register_hook SessionEnd   archive-session.sh "저장하기(SessionEnd)"
+info "설정 파일: $SETTINGS"
 
 echo
 echo "───────────────────────────────────"
